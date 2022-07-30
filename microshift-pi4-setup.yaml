@@ -1,0 +1,97 @@
+---
+- name: Microshift Setup
+  hosts: $INSTALLHOST 
+  remote_user: root
+  tasks:
+  - name: Add SSH Key for root
+    lineinfile:
+      path: ~/.ssh/authorized_keys
+      create: yes
+      state: present
+      line: ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAnYo86ytSMO1yf3hKX6IGkNUihRr05wXWaAMh1RPv+pUm5TStTp7m5vbXKZp/x2Hc8tV5W/461d9w0kBS5HVRBhwd/9GYlR5Gg+meADxxR4nG148Ui10NDVY3mt1Nbg8VSmYHjB/tgOepLgu7vyGZcY8OWsUkPm3JrCIuN2syO9lvyYKq85ynWo8oDxqtEvjXHIkQPj7SLemSicMS5/aZY67rm1cFu2+LfzHVOsxN4BdZRrMEvqGddL35cMhyiikUeEZGc5Eb9UueeO1EOXUl4pkT6/jg/Thh8mcy3NJENJfQkyHZYqEF/fx2/V638acP1hY8pSjEnK2LJ5TlzCR66w== imported-openssh-key
+
+  - name: Update all pacakges
+    dnf:
+      update_cache: yes
+      name: "*"
+      state: latest
+    when: ansible_facts['os_family'] == 'Redhat'
+
+  - name: Install common packages
+    package:
+      name: vim
+      state: present
+
+  - name: Enable cri-o module
+    # can't seem to find documentation on how to do this right with ansible, 
+    # so I'm just using a shell
+    become: true
+    shell:
+      cmd: dnf module enable -y cri-o:1.24
+
+  - name: Install cri-o and cri-o tools
+    dnf:
+      name:
+        - cri-o
+        - cri-tools  
+
+  - name: Enable cri-o
+    systemd:
+      name: crio
+      state: started
+      enabled: yes
+
+  - name: Enable Microshift Repository
+    become: true
+    shell:
+      cmd: dnf copr enable -y @redhat-et/microshift
+
+  - name: Install Microshift
+    dnf:
+      name: microshift
+      state: latest
+
+  - name: Enable Microshift
+    systemd:
+      name: microshift
+      state: started
+      enabled: yes
+
+  - name: Modify firewalld rules for Microshift - add trusted source
+    firewalld:
+      zone: trusted
+      source: 10.42.0.0/16
+      state: enabled
+      permanent: yes
+
+  - name: Modify firewalld rules for Microshift - add port 80/tcp to zone:public
+    firewalld:
+      port: 80/tcp
+      zone: public
+      permanent: yes
+      state: enabled
+
+  - name: Modify firewalld rules for Microshift - add port 443/tcp to zone:public
+    firewalld:
+      port: 443/tcp
+      zone: public
+      permanent: yes
+      state: enabled
+
+  - name: Modify firewalld rules for Microshift - add port 5353/udp to zone:public
+    firewalld:
+      port: 5353/udp
+      zone: public
+      permanent: yes
+      state: enabled
+  
+  - name: Reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded
+
+  - name: Install Microshift Client
+    become: true
+    shell:
+      cmd: curl -O /home/smreg/ https://mirror.openshift.com/pub/openshift-v4/$(uname -m)/clients/ocp/stable/openshift-client-linux.tar.gz
+      cmd: tar -xf /home/smreg/openshift-client-linux.tar.gz -C /usr/local/bin oc kubectl
